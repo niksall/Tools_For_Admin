@@ -40,16 +40,16 @@ CREATE OR REPLACE PACKAGE BODY pkg_admin_setting AS
   
   --public function
   function format_error(p_text_error_stack varchar2) return varchar2 is
-    
+  
     l_text_error_stack varchar2(512) := p_text_error_stack;
-    cursor c_line_error(p_owner varchar2, p_object_name varchar2, p_number_line varchar2) is
+    cursor c_line_error(p_owner varchar2, p_object_name varchar2, p_number_line number) is
           select * 
                  from all_source 
           where owner = upper(p_owner)
                 and name = upper(p_object_name)
-                and line = upper(p_number_line);
+                and line = p_number_line;
     l_line_error varchar2(1024);    
-        
+     
     begin
        
       WITH error_set(lvl, text) AS
@@ -67,7 +67,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_admin_setting AS
                  WHEN 2 THEN
                   substr(text, instr(text, '.') + 1, (instr(text, '",') - (instr(text, '.') + 1)))
                  WHEN 3 THEN
-                  substr(text, instr(text, 'line') + 5)
+                  replace(translate(substr(text, instr(text, 'line') + 5), chr(10) || chr(13) || chr(09), ' '), ' ', '')
                END AS text
           bulk collect into l_set_option_for_error
           FROM error_set;
@@ -77,7 +77,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_admin_setting AS
           end loop;
           
           return l_line_error;
-    end; 
+    end;
     
    --public procedure
   PROCEDURE grants_to_owner(p_from_owner  VARCHAR2
@@ -91,6 +91,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_admin_setting AS
         FROM all_objects
        WHERE owner = upper(p_owner)
          AND object_type = upper(p_type);
+    
+    l_text_backtrace CLOB;
   
   BEGIN
   
@@ -101,18 +103,22 @@ CREATE OR REPLACE PACKAGE BODY pkg_admin_setting AS
       BEGIN
         EXECUTE IMMEDIATE 'grant ' || p_type_action || ' on ' || i.owner || '.' || i.object_name || ' to ' ||
                           p_to_owner;
+                                            
+        l_text_backtrace := l_text_backtrace || ' ' || 'Procedure successfully completed.' 
+                            || ' Owner ' || p_to_owner || ' got the rights to ' 
+                            || p_type_action || ' the ' || p_type_object || ' of ' || i.object_name || chr(10);
+         
       EXCEPTION
         WHEN OTHERS THEN
-         /* record_logs('--Backtrace--');
-          record_logs(format_error(dbms_utility.format_error_backtrace));
-          record_logs('--Text error--');
-          record_logs(dbms_utility.format_error_stack);*/
-          dbms_output.put_line('--Backtrace--');
-          --dbms_output.put_line(pkg_admin_setting.format_error(dbms_utility.format_error_backtrace));
-          dbms_output.put_line('--Text error--');
-          dbms_output.put_line(dbms_utility.format_error_stack);
+          l_text_backtrace := l_text_backtrace || '--Backtrace--' || chr(10)
+                              || to_char(sysdate, 'DD-MON-YYYY HH24:MI:SS') || ' ' || pkg_admin_setting.format_error(dbms_utility.format_error_backtrace)
+                              || '--Text error--' || chr(10)
+                              || to_char(sysdate, 'DD-MON-YYYY HH24:MI:SS') || ' ' || dbms_utility.format_error_stack || chr(10);
+                              
       END;
     END LOOP;
+  
+    record_logs(l_text_backtrace);
   
   END grants_to_owner;
 
